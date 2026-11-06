@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: collabspace
+      POSTGRES_PASSWORD: collabspace
+      POSTGRES_DB: collabspace
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U collabspace"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  backend:
+    build: { context: ., dockerfile: server/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql://collabspace:collabspace@postgres:5432/collabspace?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:5173}
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+    ports: ["127.0.0.1:3001:3001"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  frontend:
+    build: { context: ., dockerfile: client/Dockerfile }
+    ports: ["127.0.0.1:5173:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+volumes:
+  postgres-data:
